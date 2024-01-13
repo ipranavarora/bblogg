@@ -1,0 +1,25 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Dashboard</title>
+</head>
+<body>
+    <h1>Dashboard</h1>
+    {{#each unapprovedBlogs}}
+        <div>
+            <h2>{{title}}</h2>
+            <p>{{content}}</p>
+            <form action="/admin/approve-blog" method="post">
+                <input type="hidden" name="blogId" value="{{_id}}">
+                <button type="submit">Approve</button>
+            </form>
+            <form action="/admin/disapprove-blog" method="post">
+                <input type="hidden" name="blogId" value="{{_id}}">
+                <button type="submit">Disapprove</button>
+            </form>
+        </div>
+    {{/each}}
+</body>
+</html>
