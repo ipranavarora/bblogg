@@ -7,6 +7,8 @@ const blog= require("./model/blog");
 const session = require('express-session')
 const bcrypt = require('bcrypt');
 const saltRounds = 10;
+const crypto = require('crypto');
+const { sendVerificationEmail } = require('./utils/email');
 app.use(session({
     secret: 'keyboard cat',
     // resave: false,
@@ -48,42 +50,71 @@ app.get("/register",(req,res)=>{
     res.render("register");
 })
 
-app.post("/register",async(req,res)=>{
-    const {username,password}=req.body;
-    const hashedPassword = await bcrypt.hash(password, saltRounds);
+app.get("/verify", async (req, res) => {
+    const verificationToken = req.query.token;
+    const user = await User.findOne({ verificationToken });
 
-    const newUser = new User({ username, password: hashedPassword });
-    await  newUser.save();
-    res.send("User registered successfully!!!")
-})
+    if (user) {
+        user.isVerified = true;
+        user.verificationToken = undefined;
+        await user.save();
+
+        res.send("Email verified successfully. You can now log in.");
+    } else {
+        res.send("Invalid verification token.");
+    }
+});
+
+app.post("/register", async (req, res) => {
+    const { username, email, password } = req.body;
+    const existingUser = await User.findOne({ email });
+
+    if (existingUser) {
+        res.send("User with this email already exists.");
+    } else {
+        const hashedPassword = await bcrypt.hash(password, saltRounds);
+        const verificationToken = crypto.randomBytes(32).toString('hex');
+
+        const newUser = new User({ username, email, password: hashedPassword, verificationToken });
+
+        await newUser.save();
+        sendVerificationEmail(email, verificationToken);
+
+        res.send("User registered successfully! Please check your email for verification.");
+    }
+});
 
 app.get("/admin/dashboard", checkIsAdmin, async (req, res) => {
     let unapprovedBlogs = await blog.find({ approved: false }).populate("user");
     res.render("dashboard", { unapprovedBlogs });
 });
 
+app.post("/login", async (req, res) => {
+    const { username, password } = req.body;
+    const user = await User.findOne({ username });
 
-app.post("/login",async(req,res)=>{
-    const {username,password} =req.body;
-    let user=await User.findOne({username:username});
-
-    if(user){
+    if (user) {
         const passwordMatch = await bcrypt.compare(password, user.password);
 
-        if(passwordMatch){
-            if (user.isAdmin) {
-                req.session.isAdmin = true;
+        if (passwordMatch) {
+            if (user.isVerified) {
+                if (user.isAdmin) {
+                    req.session.isAdmin = true;
+                }
+                req.session.isLoggedIn = true;
+                req.session.user = user;
+                res.redirect("/");
+            } else {
+                res.send("User not verified. Please check your email for verification.");
             }
-            req.session.isLoggedIn=true;
-            req.session.user=user
-            res.redirect("/");
-        }else{
+        } else {
             res.send("Invalid password");
         }
-    }else{
-        res.send("user not found!!!");
+    } else {
+        res.send("User not found!!!");
     }
-})
+});
+
 
 app.get("/logout", (req, res) => {
     req.session.destroy((err) => {
@@ -104,9 +135,8 @@ app.post("/addblog",async(req,res)=>{
     user.blog.push(newBlog._id);
     await user.save();
     res.send("done");
-    
-
 })
+
 app.get("/myblog",async(req,res)=>{
     let user=await User.findOne({_id:req.session.user._id}).populate("blog");
     console.log(user);
